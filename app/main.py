@@ -21,43 +21,34 @@ def read_root():
 def predict_water_quality(request: PredictionRequest):
     """
     Predicts water quality score and pollutant probabilities from input features.
-    
+
     Features required:
-    - **ph**: pH level (0-14)
-    - **hardness**: Water hardness (mg/L)
-    - **solids**: Total dissolved solids (ppm)
-    - **chloramines**: Chloramines level (ppm)
-    - **sulfate**: Sulfates (mg/L)
-    - **conductivity**: Electrical conductivity (μS/cm)
-    - **organic_carbon**: Organic carbon (ppm)
-    - **trihalomethanes**: Trihalomethanes (μg/L)
-    - **turbidity**: Turbidity (NTU)
+    - **ammonia**: Ammonia concentration (mg/l)
+    - **bod**: Biochemical Oxygen Demand (mg/l)
+    - **dissolved_oxygen**: Dissolved Oxygen (mg/l)
+    - **orthophosphate**: Orthophosphate concentration (mg/l)
+    - **ph**: pH value (ph units)
+    - **temperature**: Water temperature (°C)
+    - **nitrogen**: Total Nitrogen (mg/l)
+    - **nitrate**: Nitrate concentration (mg/l)
     """
     try:
-        # Convert Pydantic models to a NumPy array
-        # The order must match the model's training feature order
         input_data = np.array([
             [
+                feature.ammonia,
+                feature.bod,
+                feature.dissolved_oxygen,
+                feature.orthophosphate,
                 feature.ph,
-                feature.hardness,
-                feature.solids,
-                feature.chloramines,
-                feature.sulfate,
-                feature.conductivity,
-                feature.organic_carbon,
-                feature.trihalomethanes,
-                feature.turbidity
+                feature.temperature,
+                feature.nitrogen,
+                feature.nitrate
             ]
             for feature in request.features
         ])
-        
-        # Use the global predictor instance to make a prediction
         result = predictor.predict(input_data)
-        
         return PredictionResponse(**result)
-
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
 # To run the app locally:
 # uvicorn app.main:app --reload
