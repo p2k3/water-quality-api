@@ -1,16 +1,41 @@
-# React + Vite
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+# Water Quality Prediction Frontend
 
-Currently, two official plugins are available:
+This React app provides a user-friendly interface for predicting water quality using your FastAPI backend.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+## Features
+- Form for entering water sample parameters (ammonia, bod, dissolved_oxygen, orthophosphate, ph, temperature, nitrogen, nitrate)
+- Validation and hints for acceptable ranges
+- Sends a POST request to the `/predict` endpoint of your backend
+- Displays prediction, water quality status, main contributor, and explanation in a clear format
 
-## React Compiler
+## Usage
+1. Start your FastAPI backend (default: `http://localhost:8000`)
+2. Start this React app:
+	```
+	npm install
+	npm run dev
+	```
+3. Open [http://localhost:5173](http://localhost:5173) in your browser
+4. Enter sample parameters and click Predict
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## Connecting to a Deployed Backend
+If your FastAPI backend is deployed (e.g., on Render), update the API URL in `src/App.jsx`:
+```
+fetch('http://localhost:8000/predict', ...)
+```
+to your deployed endpoint, e.g.:
+```
+fetch('https://your-api.onrender.com/predict', ...)
+```
 
-## Expanding the ESLint configuration
+## Customization
+- Edit `src/App.jsx` for form logic and API integration
+- Edit `src/App.css` for styles
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+## Project Structure
+- `src/App.jsx`: Main app component
+- `src/App.css`: Styles
+
+## License
+MIT
