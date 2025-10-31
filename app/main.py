@@ -1,10 +1,12 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import List
 import numpy as np
 from .predictor import predictor # Import the initialized predictor instance
 from .schemas import PredictionRequest, PredictionResponse
+
 
 # Define the application
 app = FastAPI(
@@ -30,6 +32,18 @@ app = FastAPI(
         "faviconUrl": "/static/favicon.ico",
         "theme": "dark"
     }
+)
+
+# Mount static directory for branding assets
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+# Enable CORS for all origins (for development; restrict in production)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # Mount static directory for branding assets
