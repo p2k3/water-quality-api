@@ -1,3 +1,4 @@
+import shap
 import torch
 import torch.nn as nn
 import joblib
@@ -7,6 +8,7 @@ import sys
 import io
 import pickle
 from typing import Dict
+
 
 # This is the fix:
 # We are telling Python that the 'RobustSymGAT' class can be found
@@ -178,6 +180,24 @@ class Predictor:
         return {
             "predictions": predictions.tolist(),
             "pollutant_probabilities": pollutant_probs.tolist()
+        }
+    def explain(self, input_features: np.ndarray) -> dict:
+        """
+        Returns SHAP feature importances for the input.
+        """
+        if input_features.ndim == 1:
+            input_features = np.expand_dims(input_features, axis=0)
+        input_tensor = torch.tensor(input_features, dtype=torch.float32).to(self.device)
+
+        # Use SHAP DeepExplainer for PyTorch models
+        explainer = shap.DeepExplainer(self.model, input_tensor)
+        shap_values = explainer.shap_values(input_tensor)
+
+        # Convert SHAP values to a list for JSON serialization
+        feature_importances = np.abs(shap_values[0]).mean(axis=0).tolist()
+
+        return {
+            "feature_importances": feature_importances
         }
 
 # Load the model on startup

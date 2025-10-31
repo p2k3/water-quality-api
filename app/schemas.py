@@ -33,11 +33,19 @@ class PredictionRequest(BaseModel):
 class PredictionResponse(BaseModel):
     predictions: List[float]
     pollutant_probabilities: List[List[float]]
-    
+    explanation: dict    
     class Config:
         schema_extra = {
             "example": {
                 "predictions": [0.95],
-                "pollutant_probabilities": [[0.1, 0.2, 0.3, 0.4]]
+                "pollutant_probabilities": [[0.1, 0.2, 0.3, 0.4]],
+                "explanation": {
+                    "feature_importance": {
+                        "ph": 0.2,
+                        "hardness": 0.1,
+                        "solids": 0.3,
+                        "chloramines": 0.4
+                    }
+                }
             }
         }

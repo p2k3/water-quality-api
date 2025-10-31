@@ -19,19 +19,6 @@ def read_root():
 
 @app.post("/predict", response_model=PredictionResponse, tags=["Predictions"])
 def predict_water_quality(request: PredictionRequest):
-    """
-    Predicts water quality score and pollutant probabilities from input features.
-
-    Features required:
-    - **ammonia**: Ammonia concentration (mg/l)
-    - **bod**: Biochemical Oxygen Demand (mg/l)
-    - **dissolved_oxygen**: Dissolved Oxygen (mg/l)
-    - **orthophosphate**: Orthophosphate concentration (mg/l)
-    - **ph**: pH value (ph units)
-    - **temperature**: Water temperature (°C)
-    - **nitrogen**: Total Nitrogen (mg/l)
-    - **nitrate**: Nitrate concentration (mg/l)
-    """
     try:
         input_data = np.array([
             [
@@ -47,7 +34,12 @@ def predict_water_quality(request: PredictionRequest):
             for feature in request.features
         ])
         result = predictor.predict(input_data)
-        return PredictionResponse(**result)
+        explanation = predictor.explain(input_data)
+        return {
+            "predictions": result["predictions"],
+            "pollutant_probabilities": result["pollutant_probabilities"],
+            "explanation": explanation
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 # To run the app locally:
