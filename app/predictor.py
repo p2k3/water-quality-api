@@ -263,6 +263,11 @@ class Predictor:
         if input_features.ndim == 1:
             input_features = np.expand_dims(input_features, axis=0)
         input_tensor = torch.tensor(input_features, dtype=torch.float32).to(self.device)
+        # DEBUG: log inputs for traceability (will appear in server logs)
+        try:
+            print(f"[Predictor] input_features (ndarray) shape={input_features.shape} values=\n{input_features}")
+        except Exception:
+            pass
         batch_size = input_tensor.shape[0]
         # Create a fully connected dummy edge_index for batch_size nodes
         row = torch.arange(batch_size).repeat_interleave(batch_size)
@@ -272,9 +277,25 @@ class Predictor:
         seed_indices = torch.arange(batch_size).to(self.device)
         with torch.no_grad():
             outputs = self.model(input_tensor, edge_index, seed_indices)
-        predictions = outputs['predictions'].cpu().numpy().flatten()
+        # Raw regression outputs from the model (may be unbounded)
+        raw_predictions = outputs['predictions']
+        # Convert to probability-like score in [0,1] using sigmoid for thresholding
+        try:
+            sigmoid_preds = torch.sigmoid(raw_predictions).cpu().numpy().flatten()
+        except Exception:
+            # Fallback in case raw_predictions is already numpy
+            sigmoid_preds = (1.0 / (1.0 + np.exp(-raw_predictions.cpu().numpy().flatten())))
+        predictions = sigmoid_preds
         pollutant_logits = outputs['pollutant_logits'].cpu().numpy()
         pollutant_probs = torch.softmax(torch.tensor(pollutant_logits), dim=1).numpy()
+        # DEBUG: log raw and sigmoid model outputs
+        try:
+            print(f"[Predictor] raw_predictions=\n{raw_predictions.detach().cpu().numpy().flatten()}")
+            print(f"[Predictor] sigmoid_predictions=\n{predictions}")
+            print(f"[Predictor] pollutant_logits=\n{pollutant_logits}")
+            print(f"[Predictor] pollutant_probabilities=\n{pollutant_probs}")
+        except Exception:
+            pass
         return {
             "predictions": predictions.tolist(),
             "pollutant_probabilities": pollutant_probs.tolist()
@@ -313,6 +334,11 @@ class Predictor:
             explainer = shap.KernelExplainer(model_with_graph, background)
             shap_values = explainer.shap_values(input_features)
             feature_importances = np.abs(shap_values).mean(axis=0).tolist()
+        # DEBUG: log SHAP importances
+        try:
+            print(f"[Predictor] feature_importances=\n{feature_importances}")
+        except Exception:
+            pass
         return {
             "feature_importances": feature_importances
         }
