@@ -21,6 +21,7 @@ const pollutantTypeLabels = [
 
 import { useState } from 'react';
 import './App.css';
+import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import WaterDropIcon from '@mui/icons-material/WaterDrop';
 import ScienceIcon from '@mui/icons-material/Science';
 import OpacityIcon from '@mui/icons-material/Opacity';
@@ -88,6 +89,7 @@ function App() {
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
   const [showResult, setShowResult] = useState(false);
+  const [showExplanationsCard, setShowExplanationsCard] = useState(false);
 
   const validate = () => {
     const newErrors = {};
@@ -179,17 +181,37 @@ function App() {
             <p className="error">{result.error}</p>
           ) : (
             <>
-              <div className="summary-card" style={{ background: getStatusColor(result.forecast), color: '#fff', borderRadius: '16px', padding: '1.5rem', marginBottom: '1.2rem', boxShadow: '0 2px 12px rgba(42,77,105,0.15)' }}>
-                <h2 style={{ margin: 0 }}>{result.classification}</h2>
-                <small className="field-explanation">{fieldExplanations.classification}</small>
-                <p style={{ margin: '0.5rem 0 0.5rem 0', fontWeight: 600, fontSize: '1.25rem' }}>
-                  Water Quality Status: <span style={{ color: getStatusColor(result.forecast), fontWeight: 700 }}>{result.forecast}</span>
-                </p>
-                <small className="field-explanation">{fieldExplanations.forecast}</small>
-                <p><strong>Risk Score:</strong> {result.risk_score}</p>
-                <small className="field-explanation">{fieldExplanations.risk_score}</small>
-                <p><strong>Water Quality Score:</strong> {result.predictions && result.predictions[0]}</p>
-                <small className="field-explanation">{fieldExplanations.predictions}</small>
+              <div className="summary-card" style={{ background: getStatusColor(result.forecast), color: '#fff', borderRadius: '16px', padding: '1.2rem 1rem', marginBottom: '1.2rem', boxShadow: '0 2px 12px rgba(42,77,105,0.15)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem' }}>
+                  <div>
+                    <h2 style={{ margin: 0 }}>{result.classification}</h2>
+                    <div style={{ marginTop: '6px', fontWeight: 600 }}>
+                      <span style={{ fontSize: '0.98rem' }}>Status: </span>
+                      <span style={{ color: getStatusColor(result.forecast), fontWeight: 700, fontSize: '1rem' }}>{result.forecast}</span>
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ fontSize: '0.95rem', fontWeight: 700 }}>Score</div>
+                      <div style={{ fontSize: '1.05rem' }}>{(result.predictions && result.predictions[0]) ? Number(result.predictions[0]).toFixed(3) : '—'}</div>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ fontSize: '0.95rem', fontWeight: 700 }}>Risk</div>
+                      <div style={{ fontSize: '1.05rem' }}>{typeof result.risk_score === 'number' ? Number(result.risk_score).toFixed(3) : (result.risk_score || '—')}</div>
+                    </div>
+                    <button className="info-button" onClick={() => setShowExplanationsCard(!showExplanationsCard)} aria-label="Toggle explanations" title={showExplanationsCard ? 'Hide details' : 'Show details'}>
+                      <InfoOutlinedIcon style={{ color: '#fff' }} />
+                    </button>
+                  </div>
+                </div>
+                {showExplanationsCard && (
+                  <div className="summary-explanations" style={{ marginTop: '10px', background: 'rgba(255,255,255,0.08)', padding: '10px', borderRadius: '8px', color: 'rgba(255,255,255,0.95)' }}>
+                    <p style={{ margin: '6px 0' }}><strong>Classification:</strong> {fieldExplanations.classification}</p>
+                    <p style={{ margin: '6px 0' }}><strong>Forecast:</strong> {fieldExplanations.forecast}</p>
+                    <p style={{ margin: '6px 0' }}><strong>Risk Score:</strong> {fieldExplanations.risk_score}</p>
+                    <p style={{ margin: '6px 0' }}><strong>Water Quality Score:</strong> {fieldExplanations.predictions}</p>
+                  </div>
+                )}
               </div>
               {/* Compact results box: displays core numeric outputs before the full explanation */}
               <div className="results-box" style={{ background: '#ffffff', borderRadius: '12px', padding: '1rem', marginBottom: '1rem', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', display: 'flex', gap: '1rem', alignItems: 'center' }}>

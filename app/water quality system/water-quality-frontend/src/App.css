@@ -40,6 +40,10 @@ body{background:var(--bg);font-family:Inter,Segoe UI,Roboto,Arial,sans-serif;col
 .results-box h4{margin:0;color:var(--primary)}
 .results-box p{margin:6px 0;color:var(--muted)}
 
+.info-button{background:transparent;border:none;cursor:pointer;padding:6px;border-radius:6px;display:inline-flex;align-items:center}
+.info-button:hover{background:rgba(255,255,255,0.08)}
+.summary-explanations p{margin:6px 0;font-size:0.95rem}
+
 .explanation-card{margin-top:12px;padding:14px;background:var(--card);border-radius:10px;box-shadow:0 6px 18px rgba(42,77,105,0.04);border-left:4px solid var(--accent)}
 
 .dashboard-section{margin-top:14px}
