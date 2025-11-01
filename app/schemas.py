@@ -72,6 +72,7 @@ class PredictionResponse(BaseModel):
     parameter_breakdown: List[ParameterBreakdown]
     forecast: str
     predictions: List[float]
+    raw_predictions: List[float]
     pollutant_probabilities: List[List[float]]
     explainability: Explainability
     audit: AuditInfo
@@ -85,6 +86,7 @@ class PredictionResponse(BaseModel):
                 ],
                 "forecast": "Unsafe",
                 "predictions": [0.95],
+                "raw_predictions": [1.83],
                 "pollutant_probabilities": [[0.1, 0.2, 0.3, 0.4]],
                 "explainability": {
                     "feature_scores": {"ph": 0.45, "nitrate": 0.32},

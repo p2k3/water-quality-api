@@ -191,10 +191,13 @@ function App() {
                     </div>
                   </div>
                   <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-                    <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontSize: '0.95rem', fontWeight: 700 }}>Score</div>
-                      <div style={{ fontSize: '1.05rem' }}>{(result.predictions && result.predictions[0]) ? Number(result.predictions[0]).toFixed(3) : '—'}</div>
-                    </div>
+                      <div style={{ textAlign: 'right' }}>
+                        <div style={{ fontSize: '0.95rem', fontWeight: 700 }}>Score</div>
+                        <div style={{ fontSize: '1.05rem' }}>{(result.predictions && result.predictions[0]) ? Number(result.predictions[0]).toFixed(3) : '—'}</div>
+                        <div style={{ fontSize: '0.75rem', color: '#61707f', marginTop: '4px' }}>
+                          Raw: {(result.raw_predictions && result.raw_predictions[0]) ? Number(result.raw_predictions[0]).toFixed(3) : '—'}
+                        </div>
+                      </div>
                     <div style={{ textAlign: 'right' }}>
                       <div style={{ fontSize: '0.95rem', fontWeight: 700 }}>Risk</div>
                       <div style={{ fontSize: '1.05rem' }}>{typeof result.risk_score === 'number' ? Number(result.risk_score).toFixed(3) : (result.risk_score || '—')}</div>
@@ -229,9 +232,12 @@ function App() {
                     const label = pollutantTypeLabels[maxIdx] || `Type ${maxIdx + 1}`;
                     return (
                       <div>
-                        <p style={{ margin: 0 }}><strong>{label}</strong></p>
-                        <p style={{ margin: '0.25rem 0 0 0' }}>{(probs[maxIdx] * 100).toFixed(1)}% probability</p>
-                      </div>
+                            <p style={{ margin: 0 }}><strong>{label}</strong></p>
+                            <p style={{ margin: '0.25rem 0 0 0' }}>{(probs[maxIdx] * 100).toFixed(1)}% probability</p>
+                            <p style={{ margin: '6px 0 0 0', fontSize: '0.85rem', color: '#61707f' }}>
+                              SHAP signal: {result.explainability && result.explainability.main_feature ? `${result.explainability.main_feature} (${(result.explainability.main_feature_value||0).toFixed(3)})` : '—'}
+                            </p>
+                          </div>
                     );
                   })() : <p style={{ margin: 0 }}>No pollutant data</p>}
                 </div>

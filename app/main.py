@@ -128,11 +128,23 @@ def predict_water_quality(request: PredictionRequest):
         risk_score = 1.0 - result["predictions"][0] if not compliant else 0.0
         forecast = "Safe" if result["predictions"][0] >= 0.8 else ("Moderate" if result["predictions"][0] >= 0.5 else "Unsafe")
 
-        # Find main contributing feature
-        main_feature = max(feature_importance_dict, key=feature_importance_dict.get)
-        main_value = feature_importance_dict[main_feature]
+        # Find main contributing feature (from SHAP importances)
+        # If importances are all tiny/zero, fallback to pollutant probabilities for the 'top' signal
+        main_feature = None
+        main_value = 0.0
+        if importances and any([abs(v) > 1e-6 for v in importances]):
+            main_feature = max(feature_importance_dict, key=feature_importance_dict.get)
+            main_value = feature_importance_dict[main_feature]
+        else:
+            # fallback: choose pollutant with highest probability
+            if result.get('pollutant_probabilities') and len(result['pollutant_probabilities'])>0:
+                probs = result['pollutant_probabilities'][0]
+                idx = int(np.argmax(probs))
+                pf_map = ['bacterial','chemical','organic','agricultural']
+                main_feature = pf_map[idx]
+                main_value = probs[idx]
 
-        # Generate plain-language explanation
+        # Generate plain-language explanation — more informative
         advice_map = {
             "ammonia": "Reduce ammonia sources (e.g., sewage, fertilizer runoff).",
             "bod": "Lower organic pollution to reduce BOD.",
@@ -143,20 +155,33 @@ def predict_water_quality(request: PredictionRequest):
             "nitrogen": "Reduce nitrogen fertilizers and waste.",
             "nitrate": "Limit agricultural runoff and fertilizer use."
         }
-        advice = advice_map.get(main_feature, "Monitor water quality closely.")
-        plain_explanation = (
-            f"{classification}: "
-            f"Station flagged as {classification.lower()} because {main_feature} = {getattr(request.features[0], main_feature)}, "
-            f"{parameter_breakdown[0]['reason'] if parameter_breakdown else 'all parameters within limits'}. "
-            f"{advice}"
-        )
+        # Build explanation text
+        if not compliant:
+            reasons = "; ".join([f"{p['parameter']} {p['reason']}" for p in parameter_breakdown])
+            advice = advice_map.get(main_feature, "Monitor water quality closely.")
+            plain_explanation = (
+                f"{classification}: Station flagged as {classification.lower()} because {reasons}. Top contributing factor appears to be '{main_feature}' (importance {main_value:.3f}). {advice}"
+            )
+        else:
+            # compliant: provide auditable model context (raw and sigmoid scores, top feature/pollutant)
+            raw_score = result.get('raw_predictions', [None])[0]
+            sigmoid_score = result.get('predictions', [None])[0]
+            top_pollutant_idx = int(np.argmax(result.get('pollutant_probabilities',[[]])[0])) if result.get('pollutant_probabilities') else None
+            pollutant_labels = ['Bacterial','Chemical','Organic','Agricultural']
+            top_pollutant = pollutant_labels[top_pollutant_idx] if top_pollutant_idx is not None else 'N/A'
+            advice = advice_map.get(main_feature, "Continue routine monitoring and maintain current controls.")
+            plain_explanation = (
+                f"{classification}: All parameters are within limits. Model raw score={raw_score:.3f}, scaled score={sigmoid_score:.3f}. Top signal: {main_feature} (importance {main_value:.3f}); likely pollutant: {top_pollutant}. {advice}"
+            )
 
         # Explainability (SHAP, IG, attention map placeholders)
         explainability = {
             "feature_scores": feature_importance_dict,
             "attention_map": explanation.get("attention_map", []),
             "integrated_gradients": explanation.get("integrated_gradients", {}),
-            "plain_explanation": plain_explanation
+            "plain_explanation": plain_explanation,
+            "main_feature": main_feature,
+            "main_feature_value": main_value
         }
 
         # Audit info
@@ -172,6 +197,7 @@ def predict_water_quality(request: PredictionRequest):
             "parameter_breakdown": parameter_breakdown,
             "forecast": forecast,
             "predictions": result["predictions"],
+            "raw_predictions": result.get("raw_predictions", []),
             "pollutant_probabilities": result["pollutant_probabilities"],
             "explainability": explainability,
             "audit": audit

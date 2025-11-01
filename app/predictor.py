@@ -296,8 +296,15 @@ class Predictor:
             print(f"[Predictor] pollutant_probabilities=\n{pollutant_probs}")
         except Exception:
             pass
+        # Also return raw (unscaled) regression outputs for auditing
+        try:
+            raw_preds = raw_predictions.detach().cpu().numpy().flatten().tolist()
+        except Exception:
+            # raw_predictions may already be numpy
+            raw_preds = np.array(raw_predictions).flatten().tolist()
         return {
             "predictions": predictions.tolist(),
+            "raw_predictions": raw_preds,
             "pollutant_probabilities": pollutant_probs.tolist()
         }
     def explain(self, input_features: np.ndarray) -> dict:
