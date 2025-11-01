@@ -1,3 +1,22 @@
+// Field explanations for dashboard clarity
+const fieldExplanations = {
+  classification: "Compliant: The water sample meets all regulatory standards (DEAS12:2018).",
+  forecast: "Water Quality Status: The predicted status based on your sample; 'Safe' means low risk for pollution or health hazards.",
+  risk_score: "Risk Score: Probability (0–1) of non-compliance; 0 means no risk detected.",
+  predictions: "Water Quality Score: Model’s overall score for water safety (higher is better; scale may vary by model).",
+  parameter_breakdown: "Parameter Breakdown: Lists any parameters that are out of compliance; 'All parameters within compliance limits' means everything is within safe ranges.",
+  pollutant_probabilities: "Pollutant Probabilities: Model’s estimated probability for each pollutant type; higher values indicate greater likelihood of that pollutant.",
+  feature_importances: "Feature Importances: Shows which input features most influenced the prediction; 0.000 means none of the features had a strong impact for this sample.",
+  plain_explanation: "Explanation: Plain-language summary of why the sample is classified as it is.",
+  audit: "Audit Info: Timestamp and model version for traceability."
+};
+
+const pollutantTypeLabels = [
+  "Bacterial (e.g., ammonia, BOD, low oxygen)",
+  "Chemical (e.g., pH, nitrogen, nitrate)",
+  "Organic (e.g., BOD, ammonia, low oxygen)",
+  "Agricultural (e.g., nitrate, orthophosphate, nitrogen)"
+];
 
 
 import { useState } from 'react';
@@ -125,10 +144,11 @@ function App() {
         <img src={logo} alt="Water Quality Logo" className="logo-header" />
         <div>
           <h1>Water Quality Predictor</h1>
-          <p className="subtitle">Enter your water sample parameters to predict quality and get actionable insights.</p>
+          <p className="subtitle">Enter your water sample parameters below to get a clear, actionable dashboard of water quality predictions and explanations.</p>
         </div>
       </header>
       <form onSubmit={handleSubmit} className="form">
+        <h2>Enter Water Sample Parameters</h2>
         {Object.keys(initialValues).map((key) => (
           <div key={key} className="form-group">
             <label htmlFor={key} title={tooltips[key]} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'help' }}>
@@ -150,26 +170,71 @@ function App() {
         <button type="submit" disabled={loading}>Predict</button>
       </form>
       {loading && <p>Loading...</p>}
+      {/* Add extra spacing between Predict button and results */}
+      <div style={{ height: showResult ? '2.5rem' : '0' }}></div>
       {result && showResult && (
-        <div className="result animated-card" style={{ borderLeft: `8px solid ${getStatusColor(result.explanation && result.explanation.status)}` }}>
+        <div className="dashboard animated-card">
           {result.error ? (
             <p className="error">{result.error}</p>
           ) : (
             <>
-              <div className="summary-card" style={{ background: getStatusColor(result.explanation && result.explanation.status), color: '#fff', borderRadius: '8px', padding: '1rem', marginBottom: '1rem', boxShadow: '0 2px 8px rgba(42,77,105,0.12)' }}>
-                <h2 style={{ margin: 0 }}>{result.explanation && result.explanation.status}</h2>
-                <p style={{ margin: 0, fontWeight: 500 }}>Water Quality Status</p>
+              <div className="summary-card" style={{ background: getStatusColor(result.forecast), color: '#fff', borderRadius: '16px', padding: '1.5rem', marginBottom: '1.2rem', boxShadow: '0 2px 12px rgba(42,77,105,0.15)' }}>
+                <h2 style={{ margin: 0 }}>{result.classification}</h2>
+                <small className="field-explanation">{fieldExplanations.classification}</small>
+                <p style={{ margin: '0.5rem 0 0.5rem 0', fontWeight: 600, fontSize: '1.25rem' }}>
+                  Water Quality Status: <span style={{ color: getStatusColor(result.forecast), fontWeight: 700 }}>{result.forecast}</span>
+                </p>
+                <small className="field-explanation">{fieldExplanations.forecast}</small>
+                <p><strong>Risk Score:</strong> {result.risk_score}</p>
+                <small className="field-explanation">{fieldExplanations.risk_score}</small>
+                <p><strong>Water Quality Score:</strong> {result.predictions && result.predictions[0]}</p>
+                <small className="field-explanation">{fieldExplanations.predictions}</small>
               </div>
-              <p><strong>Water Quality Score:</strong> {result.predictions && result.predictions[0]}</p>
-              <p><strong>Main Contributor:</strong> {result.explanation && result.explanation.main_contributor}</p>
-              <p><strong>Explanation:</strong> {result.explanation && result.explanation.plain_explanation}</p>
-              <h3>Feature Importances</h3>
-              <ul>
-                {result.explanation && result.explanation.feature_importance &&
-                  Object.entries(result.explanation.feature_importance).map(([k, v]) => (
-                    <li key={k}><strong>{k}:</strong> {v.toFixed(3)}</li>
-                  ))}
-              </ul>
+              <div className="explanation-card" style={{ background: '#fff', borderRadius: '12px', boxShadow: '0 2px 8px rgba(42,77,105,0.09)', padding: '1.2rem 1rem', marginBottom: '1.2rem', borderLeft: '6px solid #4b6cb7' }}>
+                <h3 style={{ marginTop: 0, color: '#2a4d69' }}>Explanation</h3>
+                <small className="field-explanation">{fieldExplanations.plain_explanation}</small>
+                <p style={{ fontSize: '1.12rem', margin: '0.7rem 0' }}>{result.explainability && result.explainability.plain_explanation}</p>
+              </div>
+              <div className="dashboard-section">
+                <h3>Parameter Breakdown</h3>
+                <small className="field-explanation">{fieldExplanations.parameter_breakdown}</small>
+                {result.parameter_breakdown && result.parameter_breakdown.length > 0 ? (
+                  <ul>
+                    {result.parameter_breakdown.map((item, idx) => (
+                      <li key={idx}>
+                        <strong>{item.parameter}:</strong> {item.value} ({item.reason}, Limit: {item.limit})
+                      </li>
+                    ))}
+                  </ul>
+                ) : <p>All parameters within compliance limits.</p>}
+              </div>
+              <div className="dashboard-section">
+                <h3>Pollutant Probabilities</h3>
+                <small className="field-explanation">{fieldExplanations.pollutant_probabilities}</small>
+                {result.pollutant_probabilities && result.pollutant_probabilities.length > 0 && (
+                  <ul>
+                    {result.pollutant_probabilities[0].map((prob, idx) => (
+                      <li key={idx}><strong>{pollutantTypeLabels[idx] || `Type ${idx + 1}`}:</strong> {prob.toFixed(3)}</li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+              <div className="dashboard-section">
+                <h3>Feature Importances</h3>
+                <small className="field-explanation">{fieldExplanations.feature_importances}</small>
+                <ul>
+                  {result.explainability && result.explainability.feature_scores &&
+                    Object.entries(result.explainability.feature_scores).map(([k, v]) => (
+                      <li key={k}><strong>{k}:</strong> {v.toFixed(3)}</li>
+                    ))}
+                </ul>
+              </div>
+              <div className="audit-info">
+                <h3>Audit Info</h3>
+                <small className="field-explanation">{fieldExplanations.audit}</small>
+                <p><strong>Timestamp:</strong> {result.audit && result.audit.timestamp}</p>
+                <p><strong>Model Version:</strong> {result.audit && result.audit.model_version}</p>
+              </div>
             </>
           )}
         </div>

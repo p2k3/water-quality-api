@@ -108,14 +108,25 @@ def predict_water_quality(request: PredictionRequest):
         importances = explanation.get("feature_importances", [])
         feature_importance_dict = dict(zip(feature_names, importances))
 
-        # Determine water quality status (simple logic: threshold on prediction)
-        pred_value = result["predictions"][0]
-        if pred_value >= 0.8:
-            status = "Safe"
-        elif pred_value >= 0.5:
-            status = "Moderate"
-        else:
-            status = "Unsafe"
+        # Compliance logic (DEAS12:2018)
+        parameter_breakdown = []
+        compliant = True
+        for key, (min_val, max_val) in ranges.items():
+            value = getattr(request.features[0], key)
+            if value < min_val or (max_val != float('inf') and value > max_val):
+                compliant = False
+                reason = f"{'Below' if value < min_val else 'Above'} DEAS12:2018 limit"
+                limit_str = f">={min_val}" if value < min_val else f"<={max_val}"
+                parameter_breakdown.append({
+                    "parameter": key,
+                    "value": value,
+                    "limit": limit_str,
+                    "reason": reason
+                })
+
+        classification = "Compliant" if compliant else "Non-Compliant"
+        risk_score = 1.0 - result["predictions"][0] if not compliant else 0.0
+        forecast = "Safe" if result["predictions"][0] >= 0.8 else ("Moderate" if result["predictions"][0] >= 0.5 else "Unsafe")
 
         # Find main contributing feature
         main_feature = max(feature_importance_dict, key=feature_importance_dict.get)
@@ -134,20 +145,36 @@ def predict_water_quality(request: PredictionRequest):
         }
         advice = advice_map.get(main_feature, "Monitor water quality closely.")
         plain_explanation = (
-            f"Water quality status: {status}. "
-            f"Main contributor: {main_feature} (importance: {main_value:.2f}). "
+            f"{classification}: "
+            f"Station flagged as {classification.lower()} because {main_feature} = {getattr(request.features[0], main_feature)}, "
+            f"{parameter_breakdown[0]['reason'] if parameter_breakdown else 'all parameters within limits'}. "
             f"{advice}"
         )
 
+        # Explainability (SHAP, IG, attention map placeholders)
+        explainability = {
+            "feature_scores": feature_importance_dict,
+            "attention_map": explanation.get("attention_map", []),
+            "integrated_gradients": explanation.get("integrated_gradients", {}),
+            "plain_explanation": plain_explanation
+        }
+
+        # Audit info
+        from datetime import datetime
+        audit = {
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "model_version": "1.0.0"
+        }
+
         return {
+            "classification": classification,
+            "risk_score": risk_score,
+            "parameter_breakdown": parameter_breakdown,
+            "forecast": forecast,
             "predictions": result["predictions"],
             "pollutant_probabilities": result["pollutant_probabilities"],
-            "explanation": {
-                "feature_importance": feature_importance_dict,
-                "status": status,
-                "main_contributor": main_feature,
-                "plain_explanation": plain_explanation
-            }
+            "explainability": explainability,
+            "audit": audit
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

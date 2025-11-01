@@ -1,13 +1,88 @@
 import shap
 import torch
 import torch.nn as nn
-import joblib
+import torch.nn.functional as F
 import numpy as np
-import os
+import pandas as pd
+from copy import deepcopy
+import warnings
 import sys
+import os
 import io
 import pickle
 from typing import Dict
+warnings.filterwarnings('ignore')
+
+# ====================================================================
+# 1. FIXED SYMGAT LAYER (The component that caused the original errors)
+# ====================================================================
+
+class SymGATLayer(nn.Module):
+    """
+    Symmetric Graph Attention Layer (SymGAT)
+    FIXED: 
+    1. Uses torch.matmul for attention calculation (Fixes 'Parameter' object not callable).
+    2. Uses .item() for fill_diagonal_ (Fixes original TypeError).
+    """
+    def __init__(self, in_features, out_features, dropout, negative_slope, concat=True):
+        super(SymGATLayer, self).__init__()
+        self.dropout = dropout
+        self.in_features = in_features
+        self.out_features = out_features
+        self.negative_slope = negative_slope
+        self.concat = concat
+        
+        self.linear = nn.Linear(in_features, out_features, bias=False)
+        
+        # Attention mechanism parameter 'a'
+        self.att = nn.Parameter(torch.empty(size=(2 * out_features, 1)))
+        nn.init.xavier_uniform_(self.att.data, gain=1.414)
+
+        self.activation = nn.ELU()
+        
+    def forward(self, h, edge_index):
+        # 1. Linear transformation
+        h_trans = self.linear(h) 
+
+        # 2. Compute attention scores (e_ij = a(Wh_i || Wh_j))
+        row, col = edge_index
+        h_row = h_trans[row]
+        h_col = h_trans[col]
+        
+        e = torch.cat([h_row, h_col], dim=1) # (num_edges, 2 * out_features)
+        
+        # ✅ FINAL FIX: Use torch.matmul to apply the attention vector 'a'
+        edge_e = torch.matmul(e, self.att) # (num_edges, 1)
+        
+        edge_e = F.leaky_relu(edge_e, self.negative_slope)
+
+        # 3. Aggregate attention scores into an attention matrix
+        num_nodes = h.size(0)
+        attention = torch.zeros((num_nodes, num_nodes), device=h.device)
+        attention[row, col] = edge_e.squeeze()
+
+        # 4. Apply the Symmetric Self-Attention Fix
+        attention = (attention + attention.T) / 2.0
+
+        # 5. Add self-loops with high attention
+        fill_value = 1.0
+        if len(edge_e) > 0:
+            # FIX from original issue: Use .item()
+            fill_value = edge_e.max().item()
+            
+        attention.fill_diagonal_(fill_value)
+
+        # 6. Softmax to get attention coefficients (alpha_ij)
+        attention = attention.softmax(dim=1)
+
+        # 7. Apply attention to neighbors' features
+        h_prime = torch.matmul(attention, h_trans)
+
+        # 8. Apply activation and dropout
+        if self.concat:
+            h_prime = self.activation(h_prime)
+        
+        return F.dropout(h_prime, p=self.dropout, training=self.training), attention
 
 
 # This is the fix:
@@ -78,18 +153,28 @@ class RobustSymGAT(nn.Module):
     Robust SymGAT with improved error handling.
     This definition must match the saved model's architecture.
     """
-    def __init__(self, input_dim, symbolic_dim=10, hidden_dim=64, output_dim=1, 
+    def __init__(self, input_dim, symbolic_dim=10, hidden_dim=64, output_dim=1,  
                  num_layers=3, dropout=0.2):
         super().__init__()
+        # Symbolic feature processor
         self.symbolic_processor = nn.Sequential(
             nn.Linear(symbolic_dim, hidden_dim // 2),
             nn.ELU(),
             nn.Dropout(dropout)
         )
+        # Initial projection and SymGAT layers
         self.layers = nn.ModuleList()
-        self.input_proj = nn.Linear(input_dim + hidden_dim // 2, hidden_dim)
-        for i in range(num_layers):
-            self.layers.append(nn.Linear(hidden_dim, hidden_dim))
+        input_to_gat = input_dim + hidden_dim // 2
+        # Initial SymGAT Layer (first layer handles combined features)
+        self.layers.append(SymGATLayer(
+            input_to_gat, hidden_dim, dropout, negative_slope=0.2, concat=True
+        ))
+        # Subsequent SymGAT Layers
+        for i in range(1, num_layers):
+            self.layers.append(SymGATLayer(
+                hidden_dim, hidden_dim, dropout, negative_slope=0.2, concat=True
+            ))
+        # Output heads
         self.regression_head = nn.Sequential(
             nn.Linear(hidden_dim, hidden_dim // 2),
             nn.ELU(),
@@ -100,39 +185,49 @@ class RobustSymGAT(nn.Module):
             nn.Linear(hidden_dim, hidden_dim // 2),
             nn.ELU(),
             nn.Dropout(dropout),
-            nn.Linear(hidden_dim // 2, 4)
+            nn.Linear(hidden_dim // 2, 4)  # 4 pollutant types
         )
         self.ontology = EnhancedWaterQualityOntology()
-        self.dropout = nn.Dropout(dropout)
+        self.dropout_layer = nn.Dropout(dropout)
         self.activation = nn.ELU()
     
-    def forward(self, x):
+    def forward(self, x, edge_index, seed_indices):
         batch_size = x.shape[0]
+        # 1. Symbolic Feature Generation
         symbolic_list = []
         for i in range(batch_size):
-            features_dict = {
-                'ammonia': float(x[i, 0]), 'bod': float(x[i, 1]),
-                'dissolved_oxygen': float(x[i, 2]), 'ph': float(x[i, 4]),
-                'nitrate': float(x[i, 7])
-            }
-            symbolic_feat = self.ontology.compute_symbolic_features(features_dict)
-            symbolic_list.append(symbolic_feat)
-        
+            try:
+                features_dict = {
+                    'ammonia': float(x[i, 0]),
+                    'bod': float(x[i, 1]) if x.shape[1] > 1 else 2.0,
+                    'dissolved_oxygen': float(x[i, 2]) if x.shape[1] > 2 else 8.0,
+                    'ph': float(x[i, 4]) if x.shape[1] > 4 else 7.0,
+                    'nitrate': float(x[i, 7]) if x.shape[1] > 7 else 5.0
+                }
+                symbolic_feat = self.ontology.compute_symbolic_features(features_dict)
+                symbolic_list.append(symbolic_feat)
+            except Exception as e:
+                default_features = torch.tensor([0.0] * 10, dtype=torch.float32)
+                symbolic_list.append(default_features)
         symbolic_features = torch.stack(symbolic_list).to(x.device)
         symbolic_encoded = self.symbolic_processor(symbolic_features)
-        x_combined = torch.cat([x, symbolic_encoded], dim=1)
-        x = self.activation(self.input_proj(x_combined))
-        
-        for layer in self.layers:
-            x_residual = self.activation(layer(x))
-            x = x + self.dropout(x_residual)
-        
-        predictions = self.regression_head(x)
-        pollutant_logits = self.classification_head(x)
-        
+        # 2. Combine features
+        x = torch.cat([x, symbolic_encoded], dim=1)
+        # 3. Apply SymGAT layers
+        for i, layer in enumerate(self.layers):
+            h_in = x if i == 0 else h_out
+            h_out, _ = layer(h_in, edge_index)
+            # Apply residual connection (only works if in_dim == out_dim)
+            if i > 0 and h_in.shape[1] == h_out.shape[1]:
+                h_out = h_in + h_out
+            x = h_out
+        final_embedding = x 
+        predictions = self.regression_head(final_embedding)
+        pollutant_logits = self.classification_head(final_embedding)
         return {
             'predictions': predictions,
             'pollutant_logits': pollutant_logits,
+            'embeddings': final_embedding
         }
 
 class Predictor:
@@ -167,16 +262,19 @@ class Predictor:
         """
         if input_features.ndim == 1:
             input_features = np.expand_dims(input_features, axis=0)
-        
         input_tensor = torch.tensor(input_features, dtype=torch.float32).to(self.device)
-        
+        batch_size = input_tensor.shape[0]
+        # Create a fully connected dummy edge_index for batch_size nodes
+        row = torch.arange(batch_size).repeat_interleave(batch_size)
+        col = torch.arange(batch_size).repeat(batch_size)
+        mask = row != col
+        edge_index = torch.stack([row[mask], col[mask]], dim=0).to(self.device)
+        seed_indices = torch.arange(batch_size).to(self.device)
         with torch.no_grad():
-            outputs = self.model(input_tensor)
-        
+            outputs = self.model(input_tensor, edge_index, seed_indices)
         predictions = outputs['predictions'].cpu().numpy().flatten()
         pollutant_logits = outputs['pollutant_logits'].cpu().numpy()
         pollutant_probs = torch.softmax(torch.tensor(pollutant_logits), dim=1).numpy()
-        
         return {
             "predictions": predictions.tolist(),
             "pollutant_probabilities": pollutant_probs.tolist()
@@ -188,14 +286,33 @@ class Predictor:
         if input_features.ndim == 1:
             input_features = np.expand_dims(input_features, axis=0)
         input_tensor = torch.tensor(input_features, dtype=torch.float32).to(self.device)
+        batch_size = input_tensor.shape[0]
+        # Create a fully connected dummy edge_index for batch_size nodes
+        row = torch.arange(batch_size).repeat_interleave(batch_size)
+        col = torch.arange(batch_size).repeat(batch_size)
+        mask = row != col
+        edge_index = torch.stack([row[mask], col[mask]], dim=0).to(self.device)
+        seed_indices = torch.arange(batch_size).to(self.device)
 
-        # Use SHAP DeepExplainer for PyTorch models
-        explainer = shap.DeepExplainer(self.model, input_tensor)
-        shap_values = explainer.shap_values(input_tensor)
+        # Use SHAP Explainer for PyTorch models
+        def model_with_graph(x):
+            x_tensor = torch.tensor(x, dtype=torch.float32).to(self.device)
+            preds = self.model(x_tensor, edge_index, seed_indices)['predictions']
+            arr = preds.detach().cpu().numpy()
+            if arr.ndim == 1:
+                arr = arr.reshape(-1, 1)
+            return arr
 
-        # Convert SHAP values to a list for JSON serialization
-        feature_importances = np.abs(shap_values[0]).mean(axis=0).tolist()
-
+        # Use a small background for SHAP
+        background = input_features if input_features.shape[0] < 100 else input_features[:100]
+        try:
+            explainer = shap.Explainer(model_with_graph, background)
+            shap_values = explainer(input_features)
+            feature_importances = np.abs(shap_values.values).mean(axis=0).tolist()
+        except Exception:
+            explainer = shap.KernelExplainer(model_with_graph, background)
+            shap_values = explainer.shap_values(input_features)
+            feature_importances = np.abs(shap_values).mean(axis=0).tolist()
         return {
             "feature_importances": feature_importances
         }

@@ -38,32 +38,63 @@ class PredictionRequest(BaseModel):
             }
         }
 
+class ParameterBreakdown(BaseModel):
+    parameter: str
+    value: float
+    limit: str
+    reason: str
+
+class Explainability(BaseModel):
+    feature_scores: dict
+    attention_map: list = Field(default_factory=list, description="Attention weights (if available)")
+    integrated_gradients: dict = Field(default_factory=dict, description="Integrated Gradients attribution (if available)")
+    plain_explanation: str
+
+class AuditInfo(BaseModel):
+    timestamp: str
+    model_version: str
+
 class PredictionResponse(BaseModel):
     """
     ## Prediction Response
     Returns:
+    - **classification**: Compliant / Non-Compliant with DEAS12:2018
+    - **risk_score**: Probability (0–1) of non-compliance
+    - **parameter_breakdown**: List of parameters causing non-compliance
+    - **forecast**: Predicted water quality status
     - **predictions**: Water quality score (0=unsafe, 1=safe)
     - **pollutant_probabilities**: Probabilities for each pollutant type
-    - **explanation**: SHAP-based feature importances, water quality status, main contributor, and plain-language advice
+    - **explainability**: SHAP/IG/attention/plain explanation
+    - **audit**: Timestamp, model version
     """
+    classification: str
+    risk_score: float
+    parameter_breakdown: List[ParameterBreakdown]
+    forecast: str
     predictions: List[float]
     pollutant_probabilities: List[List[float]]
-    explanation: dict    
+    explainability: Explainability
+    audit: AuditInfo
     class Config:
         schema_extra = {
             "example": {
+                "classification": "Non-Compliant",
+                "risk_score": 0.87,
+                "parameter_breakdown": [
+                    {"parameter": "ph", "value": 5.2, "limit": ">=6.5", "reason": "Below DEAS12:2018 limit"}
+                ],
+                "forecast": "Unsafe",
                 "predictions": [0.95],
                 "pollutant_probabilities": [[0.1, 0.2, 0.3, 0.4]],
-                "explanation": {
-                    "feature_importance": {
-                        "ph": 0.2,
-                        "ammonia": 0.1,
-                        "bod": 0.3,
-                        "nitrate": 0.4
-                    },
-                    "status": "Safe",
-                    "main_contributor": "nitrate",
-                    "plain_explanation": "Water quality status: Safe. Main contributor: nitrate (importance: 0.40). Limit agricultural runoff and fertilizer use."
+                "explainability": {
+                    "feature_scores": {"ph": 0.45, "nitrate": 0.32},
+                    "attention_map": [0.1, 0.2, 0.3, 0.4],
+                    "integrated_gradients": {"ph": 0.12, "nitrate": 0.08},
+                    "plain_explanation": "Station X flagged as non-compliant because pH = 5.2, below the DEAS limit of 6.5"
+                },
+                "audit": {
+                    "timestamp": "2025-10-31T12:34:56Z",
+                    "model_version": "1.0.0"
                 }
             }
         }
