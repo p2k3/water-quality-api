@@ -254,6 +254,8 @@ class Predictor:
 
         self.model.to(self.device)
         self.model.eval()
+        # Mark predictor as ready for inference
+        self.ready = True
         print(f"Model loaded from {model_path} and mapped to {self.device} using custom unpickler.")
 
     def predict(self, input_features: np.ndarray) -> dict:

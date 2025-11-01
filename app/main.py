@@ -44,17 +44,28 @@ else:
     import logging
     logging.getLogger("uvicorn.error").warning("Static directory 'static' not found; skipping StaticFiles mount.")
 
-# Enable CORS for all origins (for development; restrict in production)
+# Configure CORS. Prefer explicit FRONTEND_ORIGINS in production (comma-separated),
+# otherwise fall back to allow-all for development convenience.
+frontend_origins_env = os.getenv("FRONTEND_ORIGINS") or os.getenv("VITE_API_URL")
+if frontend_origins_env:
+    # If user passed a single VITE_API_URL, allow that origin. If comma-separated list, split.
+    if "," in frontend_origins_env:
+        allowed_origins = [o.strip() for o in frontend_origins_env.split(',') if o.strip()]
+    else:
+        # If a full URL was provided (e.g. https://my-app.vercel.app), use it as-is.
+        allowed_origins = [frontend_origins_env.strip()]
+else:
+    allowed_origins = ["*"]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Mount static directory for branding assets
-app.mount("/static", StaticFiles(directory="static"), name="static")
+# Note: StaticFiles mount already handled above only if the directory exists.
 
 
 # Health check and info endpoint
@@ -211,5 +222,32 @@ def predict_water_quality(request: PredictionRequest):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/health", tags=["Health & Info"], summary="Service health check")
+def health_check():
+    """Returns service readiness and model status in a user-friendly format."""
+    try:
+        model_ready = getattr(predictor, 'ready', False)
+        if model_ready:
+            return {
+                "status": "ok",
+                "message": "Backend is ready and the model is loaded.",
+                "model_version": "1.0.0",
+                "ready": True
+            }
+        else:
+            return {
+                "status": "starting",
+                "message": "Backend is running but the model is still loading. Try again in a moment.",
+                "model_version": "1.0.0",
+                "ready": False
+            }
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": f"Health check failed: {str(e)}",
+            "ready": False
+        }
 # To run the app locally:
 # uvicorn app.main:app --reload

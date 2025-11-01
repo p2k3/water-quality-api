@@ -65,6 +65,24 @@ Welcome! This guide will help you set up, run, and demo the water quality predic
    ```
    - The dashboard will be available at `http://localhost:5173`
 
+Environment variables & production backend URL (Vercel)
+1. The frontend reads the backend URL from the Vite environment variable `VITE_API_URL`. In development the code falls back to `http://localhost:8000` if the variable is not set.
+2. For local testing you can create a file named `.env.local` inside `app/water quality system/water-quality-frontend/` with the following content (don't commit `.env.local`):
+   ```text
+   VITE_API_URL=http://localhost:8000
+   ```
+3. When deploying the frontend to Vercel, set the environment variable `VITE_API_URL` in the Vercel Project Settings to your backend URL (for example `https://your-backend.onrender.com`). This ensures the production build will call your deployed backend.
+
+Vercel settings quick steps:
+- In Vercel, open your Project → Settings → Environment Variables.
+- Add a new variable:
+  - Key: `VITE_API_URL`
+  - Value: `https://<your-render-backend>.onrender.com`
+  - Target: select "Production" (and "Preview" if you want previews to use the same backend).
+- Redeploy the Vercel project so the build picks up the environment variable.
+
+Note: Vite embeds env vars at build time, so the variable must be present during the build (set it in Vercel before the build starts).
+
 ---
 
 ## 5. Demo Instructions
