@@ -1,5 +1,6 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
+import os
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import List
@@ -34,8 +35,14 @@ app = FastAPI(
     }
 )
 
-# Mount static directory for branding assets
-app.mount("/static", StaticFiles(directory="static"), name="static")
+# Mount static directory for branding assets (only if present)
+if os.path.isdir("static"):
+    app.mount("/static", StaticFiles(directory="static"), name="static")
+else:
+    # In some deployment modes (Docker or CI) the static folder might be missing.
+    # We avoid failing startup and log a warning instead.
+    import logging
+    logging.getLogger("uvicorn.error").warning("Static directory 'static' not found; skipping StaticFiles mount.")
 
 # Enable CORS for all origins (for development; restrict in production)
 app.add_middleware(

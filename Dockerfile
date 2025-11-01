@@ -12,6 +12,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy the application code
 COPY app ./app
 COPY models ./models
+# Copy static assets (logo, favicon) so StaticFiles mount succeeds in production
+COPY static ./static
 
 # Expose the port the app runs on
 EXPOSE 8000
