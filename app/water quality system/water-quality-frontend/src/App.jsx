@@ -191,6 +191,30 @@ function App() {
                 <p><strong>Water Quality Score:</strong> {result.predictions && result.predictions[0]}</p>
                 <small className="field-explanation">{fieldExplanations.predictions}</small>
               </div>
+              {/* Compact results box: displays core numeric outputs before the full explanation */}
+              <div className="results-box" style={{ background: '#ffffff', borderRadius: '12px', padding: '1rem', marginBottom: '1rem', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', display: 'flex', gap: '1rem', alignItems: 'center' }}>
+                <div style={{ flex: 1 }}>
+                  <h4 style={{ margin: 0, color: '#2a4d69' }}>Quick Results</h4>
+                  <p style={{ margin: '0.35rem 0 0 0' }}><strong>Water Quality Score:</strong> {(result.predictions && result.predictions[0]) ? Number(result.predictions[0]).toFixed(3) : '—'}</p>
+                  <p style={{ margin: '0.2rem 0 0 0' }}><strong>Forecast:</strong> <span style={{ color: getStatusColor(result.forecast), fontWeight: 700 }}>{result.forecast || '—'}</span></p>
+                  <p style={{ margin: '0.2rem 0 0 0' }}><strong>Risk Score:</strong> {typeof result.risk_score === 'number' ? result.risk_score.toFixed(3) : (result.risk_score || '—')}</p>
+                </div>
+                <div style={{ width: '240px', textAlign: 'left' }}>
+                  <h5 style={{ margin: '0 0 0.35rem 0' }}>Top Pollutant</h5>
+                  {result.pollutant_probabilities && result.pollutant_probabilities.length > 0 ? (() => {
+                    const probs = result.pollutant_probabilities[0];
+                    const maxIdx = probs.indexOf(Math.max(...probs));
+                    const label = pollutantTypeLabels[maxIdx] || `Type ${maxIdx + 1}`;
+                    return (
+                      <div>
+                        <p style={{ margin: 0 }}><strong>{label}</strong></p>
+                        <p style={{ margin: '0.25rem 0 0 0' }}>{(probs[maxIdx] * 100).toFixed(1)}% probability</p>
+                      </div>
+                    );
+                  })() : <p style={{ margin: 0 }}>No pollutant data</p>}
+                </div>
+              </div>
+
               <div className="explanation-card" style={{ background: '#fff', borderRadius: '12px', boxShadow: '0 2px 8px rgba(42,77,105,0.09)', padding: '1.2rem 1rem', marginBottom: '1.2rem', borderLeft: '6px solid #4b6cb7' }}>
                 <h3 style={{ marginTop: 0, color: '#2a4d69' }}>Explanation</h3>
                 <small className="field-explanation">{fieldExplanations.plain_explanation}</small>
