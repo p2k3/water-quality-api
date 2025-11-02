@@ -143,22 +143,82 @@ def predict_water_quality(request: PredictionRequest):
         # Compliance assessment (DEAS21:2018) - for reporting only
         parameter_breakdown = []
         compliant = True
+        critical_violations = []
+        
         for key, (min_val, max_val) in compliance_ranges.items():
             value = getattr(request.features[0], key)
             if value < min_val or (max_val != float('inf') and value > max_val):
                 compliant = False
                 reason = f"{'Below' if value < min_val else 'Above'} DEAS21:2018 limit"
                 limit_str = f">={min_val}" if value < min_val else f"<={max_val}"
+                
+                # Calculate deviation percentage
+                if value < min_val:
+                    deviation_percent = ((min_val - value) / min_val) * 100
+                else:
+                    deviation_percent = ((value - max_val) / max_val) * 100 if max_val != float('inf') else 0
+                
+                # Determine severity
+                severity = "CRITICAL" if deviation_percent > 20 else "MODERATE"
+                if severity == "CRITICAL":
+                    critical_violations.append(key)
+                
                 parameter_breakdown.append({
                     "parameter": key,
                     "value": value,
                     "limit": limit_str,
-                    "reason": reason
+                    "reason": reason,
+                    "severity": severity,
+                    "deviation_percent": deviation_percent
                 })
 
-        classification = "Compliant" if compliant else "Non-Compliant"
-        risk_score = 1.0 - result["predictions"][0] if not compliant else 0.0
-        forecast = "Safe" if result["predictions"][0] >= 0.8 else ("Moderate" if result["predictions"][0] >= 0.5 else "Unsafe")
+        # ========== UNIFIED CLASSIFICATION LOGIC ==========
+        # Combines DEAS compliance with model prediction for final forecast
+        # Priority: DEAS Non-Compliance overrides model prediction
+        
+        prediction_score = result["predictions"][0]
+        base_risk = 1.0 - prediction_score
+        
+        # Calculate risk score with violation penalty
+        if not compliant:
+            violation_penalty = len(critical_violations) * 0.15
+            risk_score = min(1.0, base_risk + violation_penalty)
+        else:
+            risk_score = base_risk
+        
+        # ========== UNIFIED FORECAST LOGIC ==========
+        # Non-compliant water CANNOT be "Safe"
+        if not compliant:
+            # Non-compliant with critical violations = Unsafe
+            if len(critical_violations) > 0 or risk_score > 0.7:
+                forecast = "Unsafe"
+                confidence = "High"
+                classification = "Non-Compliant"
+                card_color = "danger"  # Red/Pink for frontend
+            else:
+                # Non-compliant but moderate violations = Moderate
+                forecast = "Moderate"
+                confidence = "Medium"
+                classification = "Non-Compliant"
+                card_color = "warning"  # Orange/Yellow
+        else:
+            # Compliant - use model prediction
+            if prediction_score >= 0.7:
+                forecast = "Safe"
+                confidence = "High"
+                classification = "Compliant"
+                card_color = "success"  # Green
+            elif prediction_score >= 0.4:
+                forecast = "Moderate"
+                confidence = "Medium"
+                classification = "Compliant"
+                card_color = "warning"  # Orange/Yellow
+            else:
+                # Compliant but model detects hidden risk
+                forecast = "Unsafe"
+                confidence = "High"
+                classification = "Compliant (Model Detects Risk)"
+                card_color = "danger"  # Red/Pink
 
         # Find main contributing feature (from SHAP importances)
         # If importances are all tiny/zero, fallback to pollutant probabilities for the 'top' signal
@@ -191,8 +251,11 @@ def predict_water_quality(request: PredictionRequest):
         if not compliant:
             reasons = "; ".join([f"{p['parameter']} {p['reason']}" for p in parameter_breakdown])
             advice = advice_map.get(main_feature, "Monitor water quality closely.")
+            severity_note = f" ({len(critical_violations)} critical violation(s))" if critical_violations else ""
             plain_explanation = (
-                f"{classification}: Station flagged as {classification.lower()} because {reasons}. Top contributing factor appears to be '{main_feature}' (importance {main_value:.3f}). {advice}"
+                f"{classification}{severity_note}: Water sample violates DEAS 21:2018 standards - {reasons}. "
+                f"Forecast: {forecast}. Top contributing factor: '{main_feature}' (SHAP importance: {main_value:.3f}). "
+                f"Risk Score: {risk_score:.1%}. Recommendation: {advice}"
             )
         else:
             # compliant: provide auditable model context (raw and sigmoid scores, top feature/pollutant)
@@ -203,7 +266,10 @@ def predict_water_quality(request: PredictionRequest):
             top_pollutant = pollutant_labels[top_pollutant_idx] if top_pollutant_idx is not None else 'N/A'
             advice = advice_map.get(main_feature, "Continue routine monitoring and maintain current controls.")
             plain_explanation = (
-                f"{classification}: All parameters are within limits. Model raw score={raw_score:.3f}, scaled score={sigmoid_score:.3f}. Top signal: {main_feature} (importance {main_value:.3f}); likely pollutant: {top_pollutant}. {advice}"
+                f"{classification}: All parameters within DEAS 21:2018 limits. "
+                f"Model quality score: {sigmoid_score:.3f} (raw: {raw_score:.3f}). "
+                f"Forecast: {forecast}. Top signal: {main_feature} (SHAP: {main_value:.3f}); "
+                f"Likely pollutant type: {top_pollutant}. Recommendation: {advice}"
             )
 
         # Explainability (SHAP, IG, attention map placeholders)
@@ -225,9 +291,11 @@ def predict_water_quality(request: PredictionRequest):
 
         return {
             "classification": classification,
+            "forecast": forecast,
+            "card_color": card_color,
+            "confidence": confidence,
             "risk_score": risk_score,
             "parameter_breakdown": parameter_breakdown,
-            "forecast": forecast,
             "predictions": result["predictions"],
             "raw_predictions": result.get("raw_predictions", []),
             "pollutant_probabilities": result["pollutant_probabilities"],
