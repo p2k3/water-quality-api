@@ -4,7 +4,7 @@ SHAP Background Data Generator for Water Quality Prediction
 
 Generates realistic background data for SHAP explainability based on:
 - Training data distributions (n=2,827,977 samples)
-- DEAS 21:2018 (EAS 12:2018) water quality standards
+- EAS 12:2018 (East African Standard for potable water specification)
 - Observed parameter distributions from actual water quality monitoring
 
 This ensures SHAP feature importances are interpretable and aligned with
@@ -53,7 +53,7 @@ def get_background_data_from_distributions(device='cpu', num_samples=100):
     # - 10% high values (contamination events)
     
     # ----- Ammonia (mg/L) -----
-    # DEAS 21:2018: Not explicitly listed, but <0.5 mg/L typical for safety
+    # EAS 12:2018: <0.5 mg/L typical for safety
     # Training: Median=0.10, Mean=1.17
     ammonia_low = np.random.lognormal(np.log(0.10), 0.5, 70)      # Typical
     ammonia_mid = np.random.lognormal(np.log(0.50), 0.8, 20)      # Elevated
@@ -71,7 +71,7 @@ def get_background_data_from_distributions(device='cpu', num_samples=100):
     bod_all = np.clip(bod_all, 0.1, 15.0)
     
     # ----- Dissolved Oxygen (mg/L) -----
-    # DEAS 21:2018: Should be >6 mg/L for aquatic life
+    # EAS 12:2018: Should be >6 mg/L for aquatic life
     # Training: Median=10.20, Mean=10.61 (nearly normal distribution)
     do_all = np.random.normal(10.4, 2.5, 100)
     do_all = np.clip(do_all, 2.0, 20.0)  # Physical limits
@@ -85,13 +85,13 @@ def get_background_data_from_distributions(device='cpu', num_samples=100):
     ortho_all = np.clip(ortho_all, 0.001, 5.0)
     
     # ----- pH -----
-    # DEAS 21:2018: 6.5 - 8.5 acceptable range
+    # EAS 12:2018: 6.5 - 8.5 acceptable range
     # Training: Median=7.78, Mean=7.74 (nearly normal, well-centered)
     ph_all = np.random.normal(7.76, 0.8, 100)
     ph_all = np.clip(ph_all, 5.5, 9.0)  # Allow some violations for diversity
     
     # ----- Temperature (°C) -----
-    # DEAS 21:2018: Not explicitly limited, but ambient water typically 5-30°C
+    # EAS 12:2018: Not explicitly limited, but ambient water typically 5-30°C
     # Training: Median=11.46, Mean=11.84 (bimodal: main peak ~11°C, secondary ~22°C)
     temp_main = np.random.normal(11.5, 2.0, 80)   # Cool water (main peak)
     temp_warm = np.random.normal(22.0, 4.0, 20)   # Warmer conditions
@@ -107,12 +107,12 @@ def get_background_data_from_distributions(device='cpu', num_samples=100):
     nitrogen_all = np.clip(nitrogen_all, 0.1, 20.0)
     
     # ----- Nitrate (mg/L) -----
-    # DEAS 21:2018: 50 mg/L maximum (as NO₃⁻)
+    # EAS 12:2018: 50 mg/L maximum (as NO₃⁻)
     # Training: Median=4.92, Mean=5.77 (right skew)
     nitrate_low = np.random.lognormal(np.log(5.0), 0.9, 70)      # Typical
     nitrate_high = np.random.lognormal(np.log(15.0), 1.2, 30)    # Agricultural areas
     nitrate_all = np.concatenate([nitrate_low, nitrate_high])
-    nitrate_all = np.clip(nitrate_all, 0.1, 50.0)  # DEAS limit
+    nitrate_all = np.clip(nitrate_all, 0.1, 50.0)  # EAS 12:2018 limit
     
     # ========== COMBINE INTO SAMPLES ==========
     # Shuffle to ensure random feature combinations
@@ -142,7 +142,7 @@ def get_background_data_from_distributions(device='cpu', num_samples=100):
     
     # ========== STATISTICS REPORT ==========
     print(f"\n{'='*70}")
-    print(f"SHAP Background Data Generated - DEAS 21:2018 Compliant")
+    print(f"SHAP Background Data Generated - EAS 12:2018 Compliant")
     print(f"{'='*70}")
     print(f"Training data reference: n=2,827,977 samples")
     print(f"Background samples: {num_samples}")
@@ -172,7 +172,7 @@ def get_background_data_from_distributions(device='cpu', num_samples=100):
         print(f"  Background: mean={col.mean():.2f}, median={np.median(col):.2f}, "
               f"range=[{col.min():.2f}, {col.max():.2f}]")
         print(f"  Training:   mean={training_means[i]:.2f}, median={training_medians[i]:.2f}")
-        print(f"  DEAS 21:2018: {deas_limits[i]}")
+        print(f"  EAS 12:2018: {deas_limits[i]}")
     
     print(f"\n{'='*70}")
     print(f"Distribution Characteristics:")
@@ -186,7 +186,7 @@ def get_background_data_from_distributions(device='cpu', num_samples=100):
 
 def get_deas_compliance_summary():
     """
-    Return DEAS 21:2018 compliance thresholds for reference.
+    Return EAS 12:2018 compliance thresholds for reference.
     
     Returns:
         dict: Parameter limits and interpretations
@@ -253,6 +253,6 @@ if __name__ == "__main__":
     print(f"  {background[0].tolist()}")
     
     compliance = get_deas_compliance_summary()
-    print(f"\nDEAS 21:2018 Standards Loaded:")
+    print(f"\nEAS 12:2018 Standards Loaded:")
     for param, info in compliance.items():
         print(f"  {param}: {info['range']} {info['unit']}")
