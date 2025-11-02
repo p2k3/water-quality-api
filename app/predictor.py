@@ -254,9 +254,22 @@ class Predictor:
 
         self.model.to(self.device)
         self.model.eval()
+        
+        # Initialize SHAP background data (realistic samples from training distribution)
+        print("[Predictor] Initializing SHAP explainer with realistic background data...")
+        try:
+            from .shap_background import get_background_data_from_distributions
+            self.background_data = get_background_data_from_distributions(device=self.device, num_samples=100)
+            self.shap_explainer = None  # Will be created on first use
+            print(f"[Predictor] SHAP background data initialized: {self.background_data.shape[0]} samples")
+        except Exception as e:
+            print(f"[Predictor] Warning: Could not initialize SHAP background data: {e}")
+            self.background_data = None
+            self.shap_explainer = None
+        
         # Mark predictor as ready for inference
         self.ready = True
-        print(f"Model loaded from {model_path} and mapped to {self.device} using custom unpickler.")
+        print(f"[Predictor] Model loaded from {model_path} and mapped to {self.device} using custom unpickler.")
 
     def predict(self, input_features: np.ndarray) -> dict:
         """
@@ -311,46 +324,134 @@ class Predictor:
         }
     def explain(self, input_features: np.ndarray) -> dict:
         """
-        Returns SHAP feature importances for the input.
+        Returns SHAP feature importances for the input using realistic background data.
         """
         if input_features.ndim == 1:
             input_features = np.expand_dims(input_features, axis=0)
-        input_tensor = torch.tensor(input_features, dtype=torch.float32).to(self.device)
-        batch_size = input_tensor.shape[0]
-        # Create a fully connected dummy edge_index for batch_size nodes
-        row = torch.arange(batch_size).repeat_interleave(batch_size)
-        col = torch.arange(batch_size).repeat(batch_size)
-        mask = row != col
-        edge_index = torch.stack([row[mask], col[mask]], dim=0).to(self.device)
-        seed_indices = torch.arange(batch_size).to(self.device)
-
-        # Use SHAP Explainer for PyTorch models
-        def model_with_graph(x):
-            x_tensor = torch.tensor(x, dtype=torch.float32).to(self.device)
-            preds = self.model(x_tensor, edge_index, seed_indices)['predictions']
-            arr = preds.detach().cpu().numpy()
-            if arr.ndim == 1:
-                arr = arr.reshape(-1, 1)
-            return arr
-
-        # Use a small background for SHAP
-        background = input_features if input_features.shape[0] < 100 else input_features[:100]
+        
+        # Feature names for output
+        feature_names = ['ammonia', 'bod', 'dissolved_oxygen', 'orthophosphate',
+                        'ph', 'temperature', 'nitrogen', 'nitrate']
+        
+        # If no background data, return zeros
+        if self.background_data is None:
+            print("[Predictor] No SHAP background data available, returning zero importances")
+            return {
+                "feature_importances": [0.0] * len(feature_names)
+            }
+        
         try:
-            explainer = shap.Explainer(model_with_graph, background)
-            shap_values = explainer(input_features)
-            feature_importances = np.abs(shap_values.values).mean(axis=0).tolist()
-        except Exception:
-            explainer = shap.KernelExplainer(model_with_graph, background)
-            shap_values = explainer.shap_values(input_features)
-            feature_importances = np.abs(shap_values).mean(axis=0).tolist()
-        # DEBUG: log SHAP importances
-        try:
-            print(f"[Predictor] feature_importances=\n{feature_importances}")
-        except Exception:
-            pass
-        return {
-            "feature_importances": feature_importances
-        }
+            input_tensor = torch.tensor(input_features, dtype=torch.float32).to(self.device)
+            batch_size = input_tensor.shape[0]
+            
+            # Create edge index for the input sample
+            row = torch.arange(batch_size).repeat_interleave(batch_size)
+            col = torch.arange(batch_size).repeat(batch_size)
+            mask = row != col
+            edge_index = torch.stack([row[mask], col[mask]], dim=0).to(self.device)
+            seed_indices = torch.arange(batch_size).to(self.device)
+            
+            # Create edge index for background samples
+            bg_size = self.background_data.shape[0]
+            bg_row = torch.arange(bg_size).repeat_interleave(bg_size)
+            bg_col = torch.arange(bg_size).repeat(bg_size)
+            bg_mask = bg_row != bg_col
+            bg_edge_index = torch.stack([bg_row[bg_mask], bg_col[bg_mask]], dim=0).to(self.device)
+            bg_seed_indices = torch.arange(bg_size).to(self.device)
+
+            # Model wrapper for SHAP
+            def model_with_graph(x):
+                """
+                Wrapper that handles graph structure for SHAP.
+                Uses MINIMAL graph to avoid memory explosion.
+                """
+                if isinstance(x, np.ndarray):
+                    x_tensor = torch.tensor(x, dtype=torch.float32).to(self.device)
+                else:
+                    x_tensor = x
+                
+                local_batch = x_tensor.shape[0]
+                
+                # CRITICAL FIX: Use minimal k-NN graph instead of full connected graph
+                # Previous version created n*(n-1) edges → memory explosion
+                # New version creates only k*n edges (k=3)
+                k = min(3, local_batch - 1)  # Connect to 3 nearest neighbors max
+                
+                edge_list = []
+                for i in range(local_batch):
+                    # Self-loop
+                    edge_list.append([i, i])
+                    # Connect to k nearest neighbors (circular)
+                    for offset in range(1, k + 1):
+                        edge_list.append([i, (i + offset) % local_batch])
+                        edge_list.append([i, (i - offset) % local_batch])
+                
+                local_edge_index = torch.LongTensor(edge_list).t().to(self.device)
+                local_seed_indices = torch.arange(local_batch).to(self.device)
+                
+                with torch.no_grad():
+                    preds = self.model(x_tensor, local_edge_index, local_seed_indices)['predictions']
+                
+                arr = preds.detach().cpu().numpy()
+                if arr.ndim == 1:
+                    arr = arr.reshape(-1, 1)
+                return arr
+            
+            # Use KernelExplainer with realistic background data
+            # OPTIMIZATION: Use smaller background subset to reduce memory
+            background_subset_size = min(25, self.background_data.shape[0])  # Use only 25 samples
+            background_subset = self.background_data[:background_subset_size]
+            
+            print(f"[Predictor] Computing SHAP values with {background_subset_size} background samples...")
+            
+            # Convert background to numpy
+            background_np = background_subset.cpu().numpy()
+            
+            # Initialize explainer (only once)
+            if self.shap_explainer is None:
+                print("[Predictor] Initializing SHAP KernelExplainer (this may take a moment)...")
+                self.shap_explainer = shap.KernelExplainer(model_with_graph, background_np)
+                print("[Predictor] SHAP explainer initialized successfully")
+            
+            # Calculate SHAP values with fewer samples
+            # OPTIMIZATION: Reduced from 50 to 25 samples for faster computation
+            shap_values = self.shap_explainer.shap_values(input_features, nsamples=25)
+            
+            # Handle different SHAP output formats
+            if isinstance(shap_values, list):
+                shap_values = shap_values[0]  # For binary/multi-class
+            
+            # Convert to feature importances (absolute mean)
+            if shap_values.ndim == 2:
+                feature_importances = shap_values[0].tolist()  # First sample
+            else:
+                feature_importances = shap_values.flatten().tolist()
+            
+            # Find main feature
+            abs_importances = [abs(x) for x in feature_importances]
+            main_idx = abs_importances.index(max(abs_importances))
+            main_feature = feature_names[main_idx]
+            main_value = feature_importances[main_idx]
+            
+            print(f"[Predictor] SHAP values computed successfully:")
+            for i, name in enumerate(feature_names):
+                print(f"  {name:20s}: {feature_importances[i]:+.6f}")
+            print(f"[Predictor] Main feature: {main_feature} (SHAP: {main_value:+.6f})")
+            
+            return {
+                "feature_importances": feature_importances,
+                "main_feature": main_feature,
+                "main_feature_value": main_value
+            }
+            
+        except Exception as e:
+            print(f"[Predictor] Error computing SHAP values: {e}")
+            import traceback
+            traceback.print_exc()
+            # Return zeros on error
+            return {
+                "feature_importances": [0.0] * len(feature_names)
+            }
 
 # Load the model on startup
 model_path = os.getenv("MODEL_PATH", "models/RobustSymGAT.pkl")

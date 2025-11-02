@@ -85,8 +85,8 @@ def read_root():
 @app.post("/predict", response_model=PredictionResponse, tags=["Predictions"])
 def predict_water_quality(request: PredictionRequest):
     try:
-        # Acceptable ranges for each feature
-        ranges = {
+        # DEAS21:2018 compliance ranges (for reporting, not blocking)
+        compliance_ranges = {
             "ammonia": (0.001, 0.5),
             "bod": (0.001, 5.0),
             "dissolved_oxygen": (6.0, float('inf')),
@@ -96,14 +96,28 @@ def predict_water_quality(request: PredictionRequest):
             "nitrogen": (0.001, 10.0),
             "nitrate": (0.001, 10.0)
         }
-        # Validate each feature in the request
+        
+        # Physical/technical validation limits (reject only impossible values)
+        # These are much wider to allow testing of contaminated/unsafe samples
+        technical_limits = {
+            "ammonia": (0.0, 50.0),        # Up to 50 mg/L (severe pollution)
+            "bod": (0.0, 50.0),             # Up to 50 mg/L (raw sewage levels)
+            "dissolved_oxygen": (0.0, 20.0), # 0-20 mg/L (physically possible)
+            "orthophosphate": (0.0, 10.0),  # Up to 10 mg/L (extreme eutrophication)
+            "ph": (0.0, 14.0),              # 0-14 (full pH scale)
+            "temperature": (0.0, 50.0),     # 0-50°C (physically realistic for water bodies)
+            "nitrogen": (0.0, 100.0),       # Up to 100 mg/L (industrial discharge)
+            "nitrate": (0.0, 200.0)         # Up to 200 mg/L (agricultural pollution)
+        }
+        
+        # Technical validation only (reject physically impossible values)
         for idx, feature in enumerate(request.features):
-            for key, (min_val, max_val) in ranges.items():
+            for key, (min_val, max_val) in technical_limits.items():
                 value = getattr(feature, key)
-                if value < min_val or (max_val != float('inf') and value > max_val):
+                if value < min_val or value > max_val:
                     raise HTTPException(
                         status_code=422,
-                        detail=f"Feature '{key}' at index {idx} is out of acceptable range ({min_val}–{max_val}). Value: {value}"
+                        detail=f"Feature '{key}' at index {idx} is physically impossible. Value: {value}. Valid range: {min_val}–{max_val}"
                     )
         input_data = np.array([
             [
@@ -126,14 +140,14 @@ def predict_water_quality(request: PredictionRequest):
         importances = explanation.get("feature_importances", [])
         feature_importance_dict = dict(zip(feature_names, importances))
 
-        # Compliance logic (DEAS12:2018)
+        # Compliance assessment (DEAS21:2018) - for reporting only
         parameter_breakdown = []
         compliant = True
-        for key, (min_val, max_val) in ranges.items():
+        for key, (min_val, max_val) in compliance_ranges.items():
             value = getattr(request.features[0], key)
             if value < min_val or (max_val != float('inf') and value > max_val):
                 compliant = False
-                reason = f"{'Below' if value < min_val else 'Above'} DEAS12:2018 limit"
+                reason = f"{'Below' if value < min_val else 'Above'} DEAS21:2018 limit"
                 limit_str = f">={min_val}" if value < min_val else f"<={max_val}"
                 parameter_breakdown.append({
                     "parameter": key,
