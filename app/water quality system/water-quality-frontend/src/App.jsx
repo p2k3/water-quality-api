@@ -29,7 +29,7 @@ const fieldExplanations = {
   parameter_breakdown: "Parameter Breakdown: DEAS 21:2018 compliance check for each water quality parameter. Shows severity and deviation percentage.",
   pollutant_probabilities: "Pollutant Probabilities: Model's multi-class prediction for pollution source type. Helps identify root causes.",
   feature_importances: "Feature Importances (SHAP): Explainable AI showing which parameters drove the prediction. Positive values push toward 'unsafe', negative toward 'safe'. Sorted by absolute impact.",
-  plain_explanation: "AI-Generated Explanation: Plain-language summary based on SHAP analysis and DEAS 21:2018 standards.",
+  plain_explanation: "Analysis Summary: Plain-language explanation of water quality assessment based on SHAP analysis and DEAS 21:2018 standards.",
   audit: "Audit Trail: Timestamp and model version for regulatory compliance and reproducibility."
 };
 
@@ -85,11 +85,17 @@ const tooltips = {
   nitrate: 'Nitrate (NO₃⁻): Agricultural fertilizer runoff. DEAS limit: ≤50 mg/L'
 };
 
-function getStatusColor(status) {
-  if (status === 'Safe') return '#2e7d32';
-  if (status === 'Moderate') return '#f57c00';
-  if (status === 'Unsafe') return '#c62828';
-  return '#4b6cb7';
+function getStatusColor(cardColor, forecast) {
+  // Use backend card_color if available, otherwise fall back to forecast
+  if (cardColor === 'success') return '#2e7d32';  // Green
+  if (cardColor === 'warning') return '#f57c00';  // Orange
+  if (cardColor === 'danger') return '#c62828';   // Red
+  
+  // Fallback to forecast-based color
+  if (forecast === 'Safe') return '#2e7d32';
+  if (forecast === 'Moderate') return '#f57c00';
+  if (forecast === 'Unsafe') return '#c62828';
+  return '#4b6cb7';  // Default blue
 }
 
 function getSeverityColor(severity) {
@@ -470,7 +476,7 @@ function App() {
             <>
               {/* Summary Card */}
               <div className="summary-card" style={{ 
-                background: getStatusColor(result.forecast), 
+                background: getStatusColor(result.card_color, result.forecast), 
                 color: '#fff', 
                 borderRadius: '16px', 
                 padding: '1.5rem', 
@@ -484,6 +490,18 @@ function App() {
                     </h2>
                     <div style={{ marginTop: '0.75rem', fontSize: '1.1rem', fontWeight: 600 }}>
                       Status: <span style={{ fontWeight: 700 }}>{result.forecast}</span>
+                      {result.confidence && (
+                        <span style={{ 
+                          marginLeft: '0.75rem',
+                          padding: '2px 8px',
+                          background: 'rgba(255,255,255,0.25)',
+                          borderRadius: '4px',
+                          fontSize: '0.85rem',
+                          fontWeight: 500
+                        }}>
+                          {result.confidence} Confidence
+                        </span>
+                      )}
                     </div>
                     <div style={{ marginTop: '0.5rem', fontSize: '0.9rem', opacity: 0.9 }}>
                       DEAS 21:2018 Assessment
@@ -541,7 +559,7 @@ function App() {
               }}>
                 <h3 style={{ marginTop: 0, color: '#2a4d69', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                   <InfoOutlinedIcon />
-                  AI-Generated Explanation
+                  Analysis Summary
                 </h3>
                 <small className="field-explanation" style={{ display: 'block', marginBottom: '0.75rem', color: '#757575' }}>
                   {fieldExplanations.plain_explanation}
